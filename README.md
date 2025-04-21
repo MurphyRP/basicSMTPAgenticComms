@@ -19,3 +19,4 @@ agent-email/
 └── examples/
     ├── simple_agent.py  # All-in-one example
     └── config.example.py # Example configuratio
+
