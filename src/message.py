@@ -1,149 +1,164 @@
 """
-Agent module for implementing agent behavior.
+Message module for representing agent communication messages.
 
-This module provides a base Agent class that handles the core functionality needed for
-agent-to-agent communication, including checking for messages, processing incoming messages,
-and sending responses.
+This module provides a class that encapsulates the structure of messages exchanged between
+agents, including metadata and JSON payload. The Message class provides methods for creating
+new messages, creating replies to existing messages, and serializing/deserializing messages
+to/from JSON format.
 
-The Agent class implements a robust message processing workflow with guaranteed delivery:
-1. Check for unread messages without the "agent-processing" label
-2. For each message, mark it as processing
-3. Process the message
-4. On success, mark as processed successfully (read + no processing label)
-5. On failure, mark as processing failed (unread + no processing label)
-
-This class is designed to be extended for specific agent implementations with custom behavior.
+The Message class is designed to work with the EmailTransport class, providing a clean
+separation between message representation and transport mechanics.
 """
 
-import time
-import traceback
-from message import Message
+import json
+import datetime
+import uuid
 
-class Agent:
-    """Base class for implementing agent behavior."""
+class Message:
+    """Represents a message exchanged between agents."""
     
-    def __init__(self, email_transport, agent_email, check_interval=60):
-        """Initialize the agent.
+    def __init__(self, sender=None, recipient=None, subject=None, payload=None, 
+                 message_id=None, thread_id=None, references=None, date=None):
+        """Initialize a new message.
         
         Args:
-            email_transport: An EmailTransport instance for communication
-            agent_email: The email address of this agent
-            check_interval: How often to check for new messages (in seconds)
-        """
-        self.transport = email_transport
-        self.agent_email = agent_email
-        self.check_interval = check_interval
-        print(f"Initialized Agent with email {agent_email}")
-    
-    def send_message(self, to_email, subject, payload):
-        """Send a message to another agent.
-        
-        Args:
-            to_email: Email address of the recipient
+            sender: Email address of the message sender
+            recipient: Email address of the message recipient
             subject: Subject line of the message
             payload: Dictionary containing the JSON payload
-            
-        Returns:
-            The sent Message object with updated IDs, or None if sending failed
+            message_id: Unique identifier for the message (generated if None)
+            thread_id: Thread identifier for conversation grouping
+            references: List of message IDs that this message references
+            date: Timestamp of the message (current time if None)
         """
-        # Create a new message
-        message = Message(
-            sender=self.agent_email,
-            recipient=to_email,
-            subject=subject,
-            payload=payload
-        )
+        self.sender = sender
+        self.recipient = recipient
+        self.subject = subject
+        self.payload = payload or {}
+        self.message_id = message_id or str(uuid.uuid4())
+        self.thread_id = thread_id
+        self.references = references or []
+        self.date = date or datetime.datetime.now().isoformat()
         
-        # Send the message using the transport
-        return self.transport.send_message(message)
-    
-    def reply_to_message(self, original_message, reply_payload):
-        """Reply to a message.
+    @classmethod
+    def from_transport_response(cls, response_dict):
+        """Create a Message object from an EmailTransport response dictionary.
         
         Args:
-            original_message: The Message object to reply to
+            response_dict: Dictionary from EmailTransport.get_message()
+            
+        Returns:
+            A new Message object
+        """
+        if not response_dict:
+            return None
+            
+        return cls(
+            sender=response_dict.get('sender'),
+            recipient=response_dict.get('recipient'),
+            subject=response_dict.get('subject'),
+            payload=response_dict.get('payload'),
+            message_id=response_dict.get('id'),
+            thread_id=response_dict.get('threadId'),
+            references=response_dict.get('references', []),
+            date=response_dict.get('date')
+        )
+    
+    def create_reply(self, reply_payload):
+        """Create a new Message object as a reply to this message.
+        
+        Args:
             reply_payload: Dictionary containing the JSON payload for the reply
             
         Returns:
-            The sent Message object with updated IDs, or None if sending failed
+            A new Message object configured as a reply
         """
-        # Create a reply message
-        reply = original_message.create_reply(reply_payload)
+        # Swap sender and recipient
+        sender = self.recipient
+        recipient = self.sender
         
-        # Send the reply using the transport
-        return self.transport.send_message(reply)
+        # Use message_id as subject (removing "Re:" functionality)
+        subject = self.message_id
+        
+        # Create references list with this message's ID
+        references = self.references.copy()
+        if self.message_id not in references:
+            references.append(self.message_id)
+        
+        # Create the reply message
+        return Message(
+            sender=sender,
+            recipient=recipient,
+            subject=subject,
+            payload=reply_payload,
+            thread_id=self.thread_id,
+            references=references
+        )
     
-    def check_for_messages(self):
-        """Check for new unread messages and process them.
+    def to_dict(self):
+        """Convert the message to a dictionary.
         
         Returns:
-            The number of messages processed
+            Dictionary representation of the message
         """
-        # Get unread messages
-        # Note: EmailTransport.get_unread_messages already marks them as processing
-        messages = self.transport.get_unread_messages()
-        
-        # Process each message
-        processed_count = 0
-        for message in messages:
-            try:
-                # Process the message
-                print(f"Processing message: {message}")
-                self.process_message(message)
-                
-                # Mark as processing succeeded if processing completed without errors
-                self.transport.mark_as_processing_succeeded(message)
-                processed_count += 1
-                
-            except Exception as e:
-                # Log the error and mark the message as processing failed
-                print(f"Error processing message {message.message_id}: {str(e)}")
-                print(traceback.format_exc())
-                self.transport.mark_as_processing_failed(message)
-        
-        return processed_count
-    
-    def process_message(self, message):
-        """Process an incoming message.
-        
-        This method should be overridden by subclasses to implement specific behavior.
-        The base implementation just logs the message.
-        
-        Args:
-            message: A Message object to process
-        """
-        print(f"Received message from {message.sender}: {message.subject}")
-        print(f"Payload: {message.payload}")
-        
-        # Example response - subclasses should override this
-        reply_payload = {
-            "status": "received",
-            "message": f"Your message was received by {self.agent_email}",
-            "original_subject": message.subject
+        return {
+            'message_id': self.message_id,
+            'thread_id': self.thread_id,
+            'sender': self.sender,
+            'recipient': self.recipient,
+            'subject': self.subject,
+            'date': self.date,
+            'references': self.references,
+            'payload': self.payload
         }
-        
-        # Send a simple acknowledgment reply
-        self.reply_to_message(message, reply_payload)
     
-    def run(self, max_iterations=None):
-        """Run the agent's main loop.
+    def to_json(self):
+        """Convert the message to a JSON string.
+        
+        Returns:
+            JSON string representation of the message
+        """
+        return json.dumps(self.to_dict(), indent=2)
+    
+    @classmethod
+    def from_json(cls, json_str):
+        """Create a Message object from a JSON string.
         
         Args:
-            max_iterations: Maximum number of check iterations (None for infinite)
+            json_str: JSON string representation of a message
+            
+        Returns:
+            A new Message object
         """
-        iteration = 0
         try:
-            while max_iterations is None or iteration < max_iterations:
-                print(f"Agent {self.agent_email} checking for messages...")
-                count = self.check_for_messages()
-                print(f"Processed {count} messages")
-                
-                iteration += 1
-                if max_iterations is None or iteration < max_iterations:
-                    print(f"Sleeping for {self.check_interval} seconds...")
-                    time.sleep(self.check_interval)
-                
-        except KeyboardInterrupt:
-            print("Agent stopped by user")
+            data = json.loads(json_str)
+            return cls(
+                sender=data.get('sender'),
+                recipient=data.get('recipient'),
+                subject=data.get('subject'),
+                payload=data.get('payload'),
+                message_id=data.get('message_id'),
+                thread_id=data.get('thread_id'),
+                references=data.get('references', []),
+                date=data.get('date')
+            )
+        except json.JSONDecodeError as e:
+            print(f"Error decoding message JSON: {e}")
+            return None
+    
+    def is_reply(self):
+        """Check if this message is a reply to another message.
         
-        print(f"Agent {self.agent_email} finished running")
+        Returns:
+            True if this is a reply, False otherwise
+        """
+        return len(self.references) > 0
+    
+    def __str__(self):
+        """Return a string representation of the message.
+        
+        Returns:
+            String representation with key message details
+        """
+        return f"Message(id={self.message_id}, subject='{self.subject}', " \
+               f"sender='{self.sender}', recipient='{self.recipient}')"

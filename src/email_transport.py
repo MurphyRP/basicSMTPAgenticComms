@@ -1,8 +1,8 @@
 """
 EmailTransport module for handling interactions with the Gmail API.
 
-This module provides a class that encapsulates all Gmail API operations required for agent communication,
-including sending messages, retrieving messages, and managing message state.
+This module provides a class that encapsulates Gmail API operations for agent communication,
+leveraging native email protocols (SMTP/IMAP) as implemented by Gmail.
 
 The EmailTransport class implements a label-based approach for guaranteed message processing,
 preventing concurrent processing while allowing for retries of failed operations.
@@ -12,7 +12,7 @@ import base64
 import json
 from email.mime.text import MIMEText
 from googleapiclient.errors import HttpError
-from message import Message
+from .message import Message
 
 # Label used to mark messages being processed
 PROCESSING_LABEL = "agent-processing"
@@ -20,15 +20,17 @@ PROCESSING_LABEL = "agent-processing"
 class EmailTransport:
     """Handles email transportation via Gmail API."""
     
-    def __init__(self, gmail_service, agent_email):
+    def __init__(self, gmail_service, agent_email, max_messages=10):
         """Initialize the transport with a Gmail API service.
         
         Args:
             gmail_service: An authenticated Gmail API service instance
             agent_email: The email address of this agent
+            max_messages: Maximum number of messages to retrieve per check
         """
         self.service = gmail_service
         self.agent_email = agent_email
+        self.max_messages = max_messages
         self._ensure_processing_label_exists()
         print(f"Initialized EmailTransport for {agent_email}")
     
@@ -94,7 +96,7 @@ class EmailTransport:
             print(f"Error sending message: {error}")
             return None
     
-    def get_unread_messages(self, max_results=10):
+    def get_unread_messages(self, max_results=None):
         """Get unread messages that are not being processed.
         
         Args:
@@ -103,6 +105,9 @@ class EmailTransport:
         Returns:
             List of Message objects with the processing label already applied
         """
+        # Use instance value if not explicitly provided
+        max_results = max_results or self.max_messages
+        
         try:
             # Search for unread messages not being processed
             query = f"is:unread -label:{PROCESSING_LABEL}"
@@ -167,6 +172,7 @@ class EmailTransport:
             
             if raw_payload:
                 try:
+                    # Simply try to parse the message body as JSON
                     payload = json.loads(raw_payload)
                 except json.JSONDecodeError:
                     print(f"Message {message_id} does not contain valid JSON")
@@ -305,8 +311,8 @@ class EmailTransport:
         Returns:
             An email.mime.text.MIMEText object
         """
-        # Convert payload to JSON string with pretty formatting
-        json_content = json.dumps(message.payload, indent=2)
+        # Convert payload to JSON string
+        json_content = json.dumps(message.payload)
         
         # Create MIME message
         mime_message = MIMEText(json_content)
@@ -318,6 +324,8 @@ class EmailTransport:
         if message.references and len(message.references) > 0:
             mime_message['References'] = ' '.join(message.references)
             mime_message['In-Reply-To'] = message.references[-1]
+            # Keep standard email headers for compatibility
+            # Our custom threading will be handled via the JSON structure
         
         return mime_message
     

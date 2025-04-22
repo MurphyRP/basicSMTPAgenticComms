@@ -115,13 +115,32 @@ class Agent:
         print(f"Received message from {message.sender}: {message.subject}")
         print(f"Payload: {message.payload}")
         
-        # Example response - subclasses should override this
+        # Create response using our JSON schema
         reply_payload = {
-            "status": "received",
-            "message": f"Your message was received by {self.agent_email}",
-            "original_subject": message.subject,
-            "timestamp": time.time()
+            "message_id": message.message_id,
+            "exchanges": []
         }
+        
+        # If message has existing exchanges, copy them
+        if isinstance(message.payload, dict) and "exchanges" in message.payload:
+            reply_payload["exchanges"] = message.payload["exchanges"].copy()
+        
+        # Add new exchange entry
+        new_exchange = {
+            "sender": self.agent_email,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "message_id": message.message_id,
+            "recipients": [message.sender],
+            "content": {
+                "action": "acknowledge",
+                "message": f"Your message was received by {self.agent_email}",
+                "expected_format": "json",
+                "response_targets": [message.sender]
+            }
+        }
+        
+        # Add our response to the exchanges
+        reply_payload["exchanges"].append(new_exchange)
         
         # Send a simple acknowledgment reply
         self.reply_to_message(message, reply_payload)

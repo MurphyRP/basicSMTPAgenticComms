@@ -1,6 +1,6 @@
 {
     "description": "Shared configuration for all agents",
     "credentials_path": "credentials.json",
-    "check_interval": 60,
+    "check_interval": 10,
     "max_messages": 10
 }
