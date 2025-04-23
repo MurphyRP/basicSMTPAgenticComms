@@ -5,7 +5,7 @@ This module provides a base Agent class that handles the core functionality need
 agent-to-agent communication, including checking for messages, processing incoming messages,
 and sending responses.
 
-The Agent class implements a robust message processing workflow with guaranteed delivery:
+The Agent class implements a message processing workflow with guaranteed delivery:
 1. Check for unread messages without the "agent-processing" label
 2. For each message, mark it as processing
 3. Process the message
