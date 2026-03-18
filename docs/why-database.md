@@ -120,13 +120,15 @@ With an in-memory index + flat file persistence:
 
 ## What This Means for Reuse
 
-The **algorithms** in OpenClaw's memory system are excellent and fully reusable:
+The **algorithms** in OpenClaw's memory system are worth studying and adapting, but none are implemented in this repository yet. Candidates for reuse include:
 - Hybrid search merge (vector + BM25 with configurable weights)
-- MMR re-ranking for diversity
+- MMR re-ranking for diversity (balances relevance against redundancy in results)
 - Temporal decay with evergreen exceptions
 - Hash-based change detection
 - Embedding provider abstraction with batch/cache/fallback
 - Graceful degradation chain
+
+These are design patterns observed in OpenClaw's architecture — not code present here.
 
 The **storage layer** is the part to question. For a shared human/AI memory system, the choice of persistence mechanism should follow from the sharing model — not the other way around. OpenClaw's SQLite choice precluded sharing; a different storage choice could enable it naturally.
 
